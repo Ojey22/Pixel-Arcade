@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Neon Fists</title>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+:root{--neon:#39ff9c;--pink:#ff4fa3}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:grid;place-items:center;background:radial-gradient(circle at 50% 0,#2a1a6e,#05030f 70%);color:#fff;font:10px/1.8 "Press Start 2P",monospace}
+main{width:min(96vw,960px);padding:12px}
+h1{text-align:center;font-size:clamp(14px,3vw,26px);color:var(--neon);text-shadow:0 0 12px var(--neon),3px 3px var(--pink);margin:8px 0 14px}
+.back{color:#9fe;font-size:8px;text-decoration:none}.back:hover{color:#fff}
+.crt{position:relative;border:6px solid #2b1b5e;border-radius:14px;box-shadow:0 0 40px #8a5cff88,inset 0 0 30px #000;overflow:hidden}
+.crt::after{content:"";position:absolute;inset:0;pointer-events:none;background:repeating-linear-gradient(#0000 0 2px,#0003 2px 3px);box-shadow:inset 0 0 80px #000a}
+canvas{display:block;width:100%;image-rendering:pixelated;background:#000}
+p{text-align:center;color:#9fe;font-size:8px;line-height:2.2;margin:14px 0}
+</style></head><body><main>
+<a class="back" href="../index.html">&lt; ARCADE</a>
+<h1>NEON FISTS</h1>
+<div class="crt"><canvas id="c" width="320" height="180"></canvas></div>
+<p>Move: A/D or arrows. Sidestep (3D): W/S. Punch: U, I. Kick: J, K. Block: hold L or space.<br>Best of 3 rounds. Win to climb the ladder. Press 1-3 / left-right in the menu to pick a stage.</p>
+<script src="sprites.js"></script>
+<script>
+const W=320,H=180,HZ=108,FY=148,SC=2,LIM=170;
+const $=id=>document.getElementById(id),g=$('c').getContext('2d');g.imageSmoothingEnabled=false;
+const R=(a,b)=>a+Math.random()*(b-a),F=n=>`${n}px "Press Start 2P",monospace`,wrap=(v,m)=>((v%m)+m)%m,clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const rect=(x,y,w,h,c)=>{g.fillStyle=c;g.fillRect(x|0,y|0,w|0,h|0)};
+let ac;const beep=(f,d=.06,t='square')=>{try{ac=ac||new AudioContext();const o=ac.createOscillator(),v=ac.createGain();o.type=t;o.frequency.value=f;v.gain.value=.05;o.connect(v).connect(ac.destination);o.start();o.stop(ac.currentTime+d)}catch{}};
+
+// ---------- 4-button Tekken-style moves: left/right punch (U,I), left/right kick (J,K) ----------
+const MOVES={u:{n:'LP',dmg:4,reach:26,st:.06,ac:.07,rc:.12,pose:'punch',kb:30,stun:.38},i:{n:'RP',dmg:7,reach:29,st:.1,ac:.08,rc:.2,pose:'punch',kb:50,stun:.42},
+  j:{n:'LK',dmg:6,reach:35,st:.12,ac:.08,rc:.2,pose:'kick',kb:45,stun:.4},k:{n:'RK',dmg:11,reach:39,st:.2,ac:.1,rc:.32,pose:'kick',kb:110,stun:.6}};
+
+// ---------- stages: every layer scrolls at its own speed with the camera (the movable background) ----------
+const floor=(col,line,cx,z)=>{rect(0,HZ,W,H-HZ,col);g.strokeStyle=line;g.lineWidth=1;g.beginPath();
+  for(let k=-14;k<=14;k++){const X=k*28-cx;g.moveTo(160+X*z*.5,HZ);g.lineTo(160+X*z*1.5,H)}
+  for(let i=1;i<=7;i++){const y=HZ+Math.pow(i/7,2)*(H-HZ);g.moveTo(0,y);g.lineTo(W,y)}g.stroke()};
+const sky=(a,b)=>{const s=g.createLinearGradient(0,0,0,HZ);s.addColorStop(0,a);s.addColorStop(1,b);g.fillStyle=s;g.fillRect(0,0,W,HZ)};
+const STAGES=[
+ {n:'NEON ROOFTOP',d:(t,cx,z)=>{sky('#10062a','#ff4fa3');g.fillStyle='#fff3c4';g.beginPath();g.arc(230-cx*.03*z,30,14,0,7);g.fill();
+  for(let i=0;i<8;i++){const x=wrap(i*52-cx*.12*z,W+80)-40,h=40+(i*37)%40;rect(x,HZ-h,40,h,'#2a1458');for(let w=0;w<6;w++)rect(x+6+(w%3)*11,HZ-h+6+((w/3)|0)*12,5,6,(w+i)%3?'#ffd23f':'#5ce1ff')}
+  for(let i=0;i<5;i++){const x=wrap(i*86-cx*.3*z,W+100)-50,h=60+(i*29)%30;rect(x,HZ-h,56,h,'#1b0f3a');rect(x+8,HZ-h+10,40,6,['#ff4fa3','#5ce1ff','#39ff9c'][i%3])}
+  floor('#241b44','#5ce1ff55',cx,z)}},
+ {n:'DRAGON TEMPLE',d:(t,cx,z)=>{sky('#2b0f1f','#ff9c5a');g.fillStyle='#ffd9a0';g.beginPath();g.arc(80-cx*.03*z,52,22,0,7);g.fill();g.fillStyle='#4a1f3a';
+  for(let i=0;i<4;i++){const x=wrap(i*110-cx*.06*z,W+200)-100;g.beginPath();g.moveTo(x,HZ);g.lineTo(x+60,HZ-60);g.lineTo(x+120,HZ);g.fill()}
+  for(let i=0;i<4;i++){const x=wrap(i*100-cx*.3*z,W+120)-60,sw=Math.sin(t*2+i)*3;rect(x,20,16,HZ-20,'#a3262a');rect(x-3,16,22,6,'#ffd23f');rect(x-3,HZ-6,22,6,'#ffd23f');
+    rect(x+50+sw,30,2,10,'#ffd23f');rect(x+46+sw,40,10,12,'#ff4d4d');rect(x+48+sw,44,6,4,'#ffe27a')}
+  floor('#5a2f1f','#2a140d',cx,z)}},
+ {n:'BAMBOO GROVE',d:(t,cx,z)=>{sky('#0b2a2f','#9fe3b0');
+  for(let i=0;i<14;i++)rect(wrap(i*26-cx*.1*z,W+40)-20,10+(i*13)%20,4,HZ,'#2f8f5a');
+  g.fillStyle='rgba(255,255,255,.12)';g.fillRect(0,HZ-30,W,30);
+  for(let i=0;i<6;i++){const x=wrap(i*64-cx*.35*z,W+60)-30;rect(x,0,9,HZ,'#1f6b45');rect(x+2,0,2,HZ,'#3aa56b');for(let n=0;n<5;n++)rect(x-1,18+n*22,11,2,'#14472e')}
+  floor('#2f4a26','#1c2f17',cx,z)}}];
+
+// ---------- fighters ----------
+const OPP=NF.opp,PC=NF.pc;
+const mkF=(x,c,name,human)=>({x,z:0,vx:0,hop:0,face:1,hp:100,act:null,stun:0,blk:false,combo:0,cshow:0,wins:0,think:1,mv:0,blkT:0,name,human,spr:c.sp||(c.sp=NF.poses(c)),inp:{mx:0,mz:0,atk:0,blk:0,buf:0}});
+let hi=0;try{hi=+localStorage.getItem('nf-hi')||0}catch{}
+let S={phase:'menu',t:0,stage:0,lv:0,score:0,pt:0,round:1,timer:60,p:null,c:null,cam:{x:0,z:1},shake:0,freeze:0,par:[],msg:'',win:null,endT:0},keys={};
+// Plug a real chore in here: runs every time the player wins a match.
+const onWin=()=>{};
+const scr=(x,z,h=0)=>[160+(x-S.cam.x)*S.cam.z,FY+z*16*S.cam.z-h*SC*S.cam.z*(1+z*.12)];
+function newOpp(){const o=OPP[S.lv%OPP.length];S.c=mkF(40,o,o.n,0)}
+function setup(){const{p,c}=S;[p,c].forEach((f,i)=>{Object.assign(f,{x:i?40:-40,z:0,vx:0,hop:0,hp:100,act:null,stun:0,blk:false,combo:0,cshow:0})});S.timer=60}
+function start(){S.lv=0;S.score=0;S.p=mkF(-40,PC,'YOU',1);newOpp();S.round=1;setup();S.phase='intro';S.pt=2}
+function spark(o,col){const[X,Y]=scr(o.x,o.z,12);for(let i=0;i<12;i++)S.par.push({x:X,y:Y,vx:R(-90,90),vy:R(-90,30),life:R(.2,.5),col})}
+function strike(f,o,m){
+  if(o.blk){o.hp=Math.max(0,o.hp-m.dmg*.12);o.vx=f.face*m.kb*2;spark(o,'#5ce1ff');beep(150,.05);S.freeze=.03;return}
+  f.combo=o.stun>0?f.combo+1:1;f.cshow=1.3;const d=m.dmg*Math.pow(.88,f.combo-1);
+  o.hp=Math.max(0,o.hp-d);o.stun=m.stun;o.act=null;o.vx=f.face*m.kb*3;o.hop=m.n=='RK'?.4:0;
+  spark(o,'#ffd23f');S.freeze=m.n=='RK'?.09:.05;S.shake=m.n=='RK'?7:3;beep(m.n=='RK'?90:220,.08,'sawtooth');
+  if(f.human)S.score+=Math.round(d*10)}
+function step(f,o,dt){const i=f.inp;f.face=o.x>=f.x?1:-1;f.mv=0;f.hop=Math.max(0,f.hop-dt);f.cshow-=dt;
+  if(i.buf>0)i.buf-=dt;else i.atk=0;
+  if(f.hp<=0){}
+  else if(f.stun>0)f.stun-=dt;
+  else if(f.act){const a=f.act,m=a.m;a.t+=dt;
+    if(!a.hit&&a.t>=m.st&&a.t<=m.st+m.ac&&(o.x-f.x)*f.face>0&&Math.abs(o.x-f.x)<m.reach+8&&Math.abs(o.z-f.z)<.45){a.hit=1;strike(f,o,m)}
+    if(a.t>=m.st+m.ac+m.rc)f.act=null}
+  else{f.blk=!!i.blk;
+    if(i.atk&&!f.blk){f.act={m:MOVES[i.atk],t:0,hit:0};i.atk=0}
+    else if(!f.blk){f.x+=i.mx*70*dt;f.z=clamp(f.z+i.mz*1.5*dt,-.8,.8);f.mv=i.mx||i.mz}}
+  if(f.stun>0||f.act||f.hp<=0)f.blk=false;
+  f.x=clamp(f.x+f.vx*dt,-LIM,LIM);f.vx*=Math.pow(.88,dt*60)}
+function ai(f,o,dt){const i=f.inp,lv=Math.min(S.lv,8),d=Math.abs(o.x-f.x),dz=o.z-f.z;f.think-=dt;
+  i.mx=0;i.mz=Math.abs(dz)>.25?Math.sign(dz)*.5:0;i.blk=0;
+  if(f.blkT>0){f.blkT-=dt;i.blk=1;return}
+  if(f.think<=0){f.think=R(.25,.75)/(1+lv*.12);const r=Math.random();
+    if(d<42&&r<.45+lv*.05){i.atk='uijk'[R(0,4)|0];i.buf=.2}else if(o.act&&d<50&&r<.4+lv*.05)f.blkT=.45}
+  if(d>34)i.mx=Math.sign(o.x-f.x);else if(d<20&&Math.random()<.02)i.mx=-Math.sign(o.x-f.x)}
+function afterRound(){const w=S.win;
+  if(w.wins>=2){if(w==S.p){S.lv++;S.stage=(S.stage+1)%3;newOpp();S.p.wins=0;S.round=1;onWin();setup();S.phase='intro';S.pt=2}
+    else{S.phase='over';S.endT=S.t;if(S.score>hi){hi=S.score;try{localStorage.setItem('nf-hi',hi)}catch{}}}}
+  else{S.round++;setup();S.phase='intro';S.pt=2}}
+
+function update(dt){
+  S.t+=dt;S.shake*=.85;const{p,c}=S;
+  S.par.forEach(q=>{q.x+=q.vx*dt;q.y+=q.vy*dt;q.vy+=260*dt;q.life-=dt});S.par=S.par.filter(q=>q.life>0);
+  if(S.freeze>0){S.freeze-=dt;return}
+  if(p){const mid=(p.x+c.x)/2,zt=clamp(320/(Math.abs(p.x-c.x)+120),.8,1.3);S.cam.x+=(mid-S.cam.x)*Math.min(1,dt*6);S.cam.z+=(zt-S.cam.z)*Math.min(1,dt*4)}
+  else{S.cam.x=Math.sin(S.t*.7)*90;S.cam.z=1}
+  if(S.phase=='intro'){S.pt-=dt;if(S.pt<=0)S.phase='fight'}
+  else if(S.phase=='fight'||S.phase=='rend'){
+    const f=S.phase=='fight';
+    if(f){S.timer-=dt;p.inp.mx=(keys.d||keys.ArrowRight?1:0)-(keys.a||keys.ArrowLeft?1:0);p.inp.mz=(keys.s||keys.ArrowDown?1:0)-(keys.w||keys.ArrowUp?1:0);p.inp.blk=keys.l||keys[' '];ai(c,p,dt)}
+    step(p,c,dt);step(c,p,dt);
+    if(Math.abs(p.z-c.z)<.5){const d=c.x-p.x;if(Math.abs(d)<16){const k=(16-Math.abs(d))/2*(d<0?-1:1);c.x+=k;p.x-=k}}
+    if(f&&(p.hp<=0||c.hp<=0||S.timer<=0)){S.win=p.hp>=c.hp?p:c;S.win.wins++;S.phase='rend';S.pt=2.4;S.msg=S.timer<=0?'TIME UP':'K.O.';beep(80,.4,'sawtooth');if(S.win==p)S.score+=Math.round(S.timer)*10}
+    else if(!f){S.pt-=dt;if(S.pt<=0)afterRound()}}
+}
+
+function fig(f){const[X,Y]=scr(f.x,f.z),k=S.cam.z*(1+f.z*.12)*SC;let pose='idle';
+  if(f.hp<=0||f.stun>0)pose='hurt';else if(f.act&&f.act.t<f.act.m.st+f.act.m.ac+.08)pose=f.act.m.pose;else if(f.blk)pose='block';else if(f.mv&&(S.t*8|0)%2)pose='walk';
+  const im=f.spr[pose],w=im.width*k,h=im.height*k,hop=f.hop>0?Math.sin(f.hop/.4*Math.PI)*8*k:0;
+  rect(X-w*.35,Y-1,w*.7,3,'rgba(0,0,0,.4)');g.save();g.translate(X|0,(Y-hop)|0);g.scale(f.face,1);if(f.hp<=0)g.rotate(-1.45);g.drawImage(im,-w/2|0,-h|0,w|0,h|0);g.restore()}
+
+function draw(){
+  const s=S;g.save();if(s.shake>.5)g.translate(R(-s.shake,s.shake)/2|0,R(-s.shake,s.shake)/2|0);
+  STAGES[s.stage].d(s.t,s.cam.x,s.cam.z);
+  if(s.p)[s.p,s.c].sort((a,b)=>a.z-b.z).forEach(fig);
+  s.par.forEach(q=>rect(q.x,q.y,2,2,q.col));
+  g.restore();g.textAlign='left';g.font=F(8);
+  if(s.p){const{p,c}=s;
+    rect(10,6,130,8,'#2b1b5e');rect(140-130*p.hp/100,6,130*p.hp/100,8,p.hp>30?'#ffd23f':'#ff2d55');
+    rect(180,6,130,8,'#2b1b5e');rect(180,6,130*c.hp/100,8,c.hp>30?'#ffd23f':'#ff2d55');
+    for(let i=0;i<2;i++){g.drawImage(NF.heart[i<p.wins?0:1],10+i*11,17,9,8);g.drawImage(NF.heart[i<c.wins?0:1],301-i*11,17,9,8)}
+    g.fillStyle='#fff';g.fillText(p.name,34,25);g.textAlign='right';g.fillText(c.name,286,25);
+    g.textAlign='center';g.font=F(12);g.fillText(Math.max(0,Math.ceil(s.timer)),160,22);g.font=F(7);g.fillStyle='#ffd23f';g.fillText('SCORE '+s.score,160,36);
+    if(p.combo>=2&&p.cshow>0){g.textAlign='left';g.fillStyle='#ffd23f';g.font=F(10);g.fillText(p.combo+' HIT COMBO',10,60)}}
+  g.textAlign='center';
+  if(s.phase=='menu'){g.fillStyle='#000a';g.fillRect(0,40,W,92);g.fillStyle='#39ff9c';g.font=F(18);g.fillText('NEON FISTS',160,70);
+    g.fillStyle='#fff';g.font=F(7);g.fillText('< '+STAGES[s.stage].n+' >',160,90);g.fillText('Best of 3. Climb the ladder.',160,106);if((s.t*2|0)%2)g.fillText('Click or press ENTER',160,124)}
+  if(s.phase=='intro'){g.fillStyle='#ffd23f';g.font=F(16);g.fillText(s.pt>.7?'ROUND '+s.round:'FIGHT!',160,96);g.font=F(7);g.fillStyle='#fff';if(s.pt>.7)g.fillText(s.c.name+'  -  '+STAGES[s.stage].n,160,112)}
+  if(s.phase=='rend'){g.fillStyle='#ff2d55';g.font=F(18);g.fillText(s.msg,160,96)}
+  if(s.phase=='over'){g.fillStyle='#000b';g.fillRect(0,0,W,H);g.fillStyle='#ff2d55';g.font=F(16);g.fillText('YOU LOSE',160,72);g.fillStyle='#fff';g.font=F(8);
+    g.fillText('Score '+s.score+'  Opponents beaten '+s.lv,160,96);g.fillText(s.score>=hi?'NEW HIGH SCORE!':'High score '+hi,160,112);g.fillText('Click or ENTER',160,132)}
+}
+
+const go=()=>{if(S.phase=='menu')start();else if(S.phase=='over'&&S.t-S.endT>.8)S.phase='menu'};
+addEventListener('keydown',e=>{const k=e.key.length==1?e.key.toLowerCase():e.key;keys[k]=1;if(k==' '||k.startsWith('Arrow'))e.preventDefault();
+  if(k=='Enter')go();
+  if(S.phase=='menu'){if(k=='ArrowRight')S.stage=(S.stage+1)%3;if(k=='ArrowLeft')S.stage=(S.stage+2)%3;if(k>='1'&&k<='3')S.stage=k-1}
+  if(S.phase=='fight'&&MOVES[k]){S.p.inp.atk=k;S.p.inp.buf=.2}});
+addEventListener('keyup',e=>keys[e.key.length==1?e.key.toLowerCase():e.key]=0);
+$('c').addEventListener('pointerdown',go);
+let last=0;(function loop(t){const dt=Math.min((t-last)/1000||0,.05);last=t;update(dt);draw();requestAnimationFrame(loop)})(0);
+</script></main></body></html>

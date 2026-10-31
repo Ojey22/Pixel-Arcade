@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ruin Raider</title>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+:root{--neon:#39ff9c;--pink:#ff4fa3}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:grid;place-items:center;background:radial-gradient(circle at 50% 0,#2a1a6e,#05030f 70%);color:#fff;font:10px/1.8 "Press Start 2P",monospace}
+main{width:min(96vw,960px);padding:12px}
+h1{text-align:center;font-size:clamp(14px,3vw,26px);color:var(--neon);text-shadow:0 0 12px var(--neon),3px 3px var(--pink);margin:8px 0 14px}
+.back{color:#9fe;font-size:8px;text-decoration:none}.back:hover{color:#fff}
+.crt{position:relative;border:6px solid #2b1b5e;border-radius:14px;box-shadow:0 0 40px #8a5cff88,inset 0 0 30px #000;overflow:hidden}
+.crt::after{content:"";position:absolute;inset:0;pointer-events:none;background:repeating-linear-gradient(#0000 0 2px,#0003 2px 3px);box-shadow:inset 0 0 80px #000a}
+canvas{display:block;width:100%;image-rendering:pixelated;cursor:crosshair;background:#000;touch-action:none}
+p{text-align:center;color:#9fe;font-size:8px;margin:14px 0}
+</style></head><body><main>
+<a class="back" href="../index.html">&lt; ARCADE</a>
+<h1>RUIN RAIDER</h1>
+<div class="crt"><canvas id="c" width="320" height="180"></canvas></div>
+<p>Move: A/D or arrows. Jump: W, up or space. Shoot: J, X or click. 3 hearts, no extra lives.</p>
+<script src="sprites.js"></script>
+<script>
+const W=320,H=180,GY=150;
+const $=id=>document.getElementById(id),g=$('c').getContext('2d');g.imageSmoothingEnabled=false;
+const R=(a,b)=>a+Math.random()*(b-a),F=n=>`${n}px "Press Start 2P",monospace`,wrap=(v,m)=>((v%m)+m)%m;
+const rect=(x,y,w,h,c)=>{g.fillStyle=c;g.fillRect(x|0,y|0,w|0,h|0)};
+
+// ---------- two stages: waves 1-5 jungle, 6-10 castle, then it repeats ----------
+const TH=[{n:'JUNGLE',hum:'#5fbf4a',bat:'#8a5cff',brute:'#2f8f46',boss:'#c0392b'},{n:'CASTLE',hum:'#e8e8f0',bat:'#ff4fa3',brute:'#8a8aa8',boss:'#6a1b9a'}];
+const SP=TH.map(t=>({hum:RR.hum(t.hum),bat:RR.bat(t.bat),brute:RR.brute(t.brute),boss:RR.brute(t.boss)}));
+const ET={hum:{sc:2,hp:1,v:34,pts:10},bat:{sc:2,hp:1,v:55,pts:20},brute:{sc:3,hp:3,v:22,pts:50},boss:{sc:5,hp:0,v:26,pts:500}};
+const HERO=RR.hero,[HFULL,HEMPTY]=RR.heart;
+
+let ac;const beep=(f,d=.06,t='square')=>{try{ac=ac||new AudioContext();const o=ac.createOscillator(),v=ac.createGain();o.type=t;o.frequency.value=f;v.gain.value=.05;o.connect(v).connect(ac.destination);o.start();o.stop(ac.currentTime+d)}catch{}};
+let hi=0;try{hi=+localStorage.getItem('rr-hi')||0}catch{}
+const fresh=m=>({mode:m,t:0,x:160,y:GY,vy:0,face:1,walk:0,mv:0,inv:0,fire:0,kb:0,lives:3,score:0,wave:0,theme:0,left:0,spawn:0,banner:0,shake:0,flash:0,endT:0,px:160,en:[],ar:[],par:[]});
+let S=fresh('menu'),keys={},down=false;
+const start=()=>S=fresh('play');
+// Plug a real chore in here (archive an email, close a ticket...). Runs on every kill.
+const onKill=e=>{};
+const box=e=>{const im=e.img[0]||e.img;return[im.width*e.sc*.7,im.height*e.sc*.85]};
+
+function nextWave(){const s=S;s.wave++;s.theme=((s.wave-1)/5|0)%2;s.left=s.wave%5==0?1:Math.min(4+s.wave*2,26);s.banner=2.2;s.spawn=2}
+function spawn(){const s=S,w=s.wave,th=s.theme,sd=Math.random()<.5?-1:1,r=Math.random();
+  const type=w%5==0?'boss':w>=3&&r<.18?'brute':w>=2&&r<.45?'bat':'hum',hp=type=='boss'?20+w*3:ET[type].hp;
+  s.en.push({type,th,x:sd<0?-20:W+20,y:type=='bat'?90:GY,vy:0,hp,mhp:hp,sc:ET[type].sc,img:SP[th][type],ph:R(0,6),cd:2,face:-sd})}
+function boom(x,y,col,n=14){for(let i=0;i<n;i++)S.par.push({x,y,vx:R(-80,80),vy:R(-110,20),life:R(.3,.8),col})}
+function hurt(dir){const s=S;if(s.inv>0)return;s.lives--;s.inv=1.6;s.kb=dir*220;s.vy=-160;s.shake=8;s.flash=.35;beep(110,.3,'sawtooth');
+  if(s.lives<=0){s.mode='over';s.endT=s.t;if(s.score>hi){hi=s.score;try{localStorage.setItem('rr-hi',hi)}catch{}}}}
+
+function update(dt){
+  const s=S;s.t+=dt;if(s.mode!='play')return;
+  const mx=(keys.ArrowRight||keys.d?1:0)-(keys.ArrowLeft||keys.a?1:0);s.mv=mx;if(mx){s.face=mx;s.walk+=dt}
+  if(down)s.face=s.px<s.x?-1:1;
+  s.x=Math.max(14,Math.min(W-14,s.x+mx*dt*90+s.kb*dt));s.kb*=.9;
+  if((keys.ArrowUp||keys.w||keys[' '])&&s.y>=GY){s.vy=-250;beep(500,.08)}
+  s.vy+=700*dt;s.y=Math.min(GY,s.y+s.vy*dt);if(s.y>=GY)s.vy=0;
+  s.inv-=dt;s.fire-=dt;s.banner-=dt;s.flash-=dt;s.shake*=.85;
+  if((keys.j||keys.x||keys.k||down)&&s.fire<=0){s.ar.push({x:s.x+s.face*12,y:s.y-20,vx:s.face*240,f:s.face});s.fire=.28;beep(700,.04)}
+  s.ar.forEach(a=>a.x+=a.vx*dt);
+  // endless waves: bigger and faster each time, boss on every 5th
+  if(s.left>0&&(s.spawn-=dt)<=0){spawn();s.left--;s.spawn=Math.max(.45,1.5-s.wave*.07)}
+  else if(!s.left&&!s.en.length)nextWave();
+  for(const e of s.en){e.ph+=dt;const dir=Math.sign(s.x-e.x)||1,spd=ET[e.type].v*(1+Math.min(s.wave*.05,.8));e.face=dir;
+    if(e.type=='bat'){e.x+=dir*spd*dt;e.y+=((Math.abs(s.x-e.x)<90?GY-6:70+Math.sin(e.ph*3)*25)-e.y)*dt*2.5}
+    else{e.x+=dir*spd*dt*(e.y<GY?2.5:1);
+      if(e.type=='boss'&&(e.cd-=dt)<=0&&e.y>=GY){e.vy=-320;e.cd=2.5}
+      e.vy+=700*dt;e.y=Math.min(GY,e.y+e.vy*dt);if(e.y>=GY)e.vy=0}
+    const[bw,bh]=box(e);
+    if(s.inv<=0&&Math.abs(e.x-s.x)<bw/2+6&&e.y>s.y-28&&e.y-bh<s.y)hurt(Math.sign(s.x-e.x)||1)}
+  for(const e of s.en){const[bw,bh]=box(e);
+    for(const a of s.ar)if(!a.hit&&e.hp>0&&Math.abs(a.x-e.x)<bw/2&&a.y>e.y-bh&&a.y<e.y){a.hit=1;e.hp--;beep(420,.04);boom(a.x,a.y,'#fff',4);
+      if(e.hp<=0){s.score+=ET[e.type].pts;s.shake=e.type=='boss'?10:3;boom(e.x,e.y-bh/2,TH[e.th][e.type],e.type=='boss'?40:14);beep(200,.12);onKill(e)}}}
+  s.en=s.en.filter(e=>e.hp>0);s.ar=s.ar.filter(a=>!a.hit&&a.x>-10&&a.x<W+10);
+  s.par.forEach(p=>{p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=300*dt;p.life-=dt});s.par=s.par.filter(p=>p.life>0);
+}
+
+// ---------- backgrounds: parallax layers drawn with rectangles ----------
+function bgJungle(t,cx){
+  const sk=g.createLinearGradient(0,0,0,GY);sk.addColorStop(0,'#0b2a2f');sk.addColorStop(1,'#58c08a');g.fillStyle=sk;g.fillRect(0,0,W,GY);
+  g.fillStyle='rgba(255,233,168,.5)';g.beginPath();g.arc(240-cx*.05,44,20,0,7);g.fill();
+  for(let i=0;i<9;i++){const x=wrap(i*44-cx*.15,W+60)-30;rect(x,60,6,90,'#14463f');rect(x-14,44,34,16,'#1d6b52');rect(x-8,34,22,12,'#26805f')}
+  for(let i=0;i<5;i++){const x=wrap(i*80-cx*.45,W+80)-40;rect(x,0,14,GY,'#3b2a1a');rect(x+3,0,3,GY,'#54391f');
+    for(let v=0;v<3;v++)rect(x+16+v*4+Math.sin(t+i+v)*2,0,2,30+(i*7+v*13)%30,'#2f8f46')}
+  rect(0,GY,W,4,'#4cc35a');rect(0,GY+4,W,H-GY-4,'#5a3a22');for(let i=0;i<30;i++)rect((i*37+8)%W,GY+8+(i*11)%20,3,2,'#3d2514')}
+function bgCastle(t,cx){
+  const sk=g.createLinearGradient(0,0,0,GY);sk.addColorStop(0,'#0a0720');sk.addColorStop(1,'#2a1a4e');g.fillStyle=sk;g.fillRect(0,0,W,GY);
+  g.fillStyle='#fff3c4';g.beginPath();g.arc(60-cx*.03,36,12,0,7);g.fill();rect(56-cx*.03,32,4,4,'#e0d29a');
+  for(let i=0;i<6;i++){const x=wrap(i*70-cx*.15,W+90)-45;rect(x,60,36,90,'#1a1038');for(let n=0;n<4;n++)rect(x+n*10,54,6,6,'#1a1038')}
+  rect(0,92,W,GY-92,'#2a2350');
+  for(let k=0;k<6;k++){rect(0,92+k*10,W,1,'#1c1740');for(let x=wrap((k%2)*16-cx*.4,32)-32;x<W;x+=32)rect(x,92+k*10,1,10,'#1c1740')}
+  for(let i=0;i<4;i++){const x=wrap(i*90-cx*.4,W+60)-30;rect(x,100,12,22,'#ffb347');rect(x+2,98,8,2,'#ffb347');rect(x+5,100,2,22,'#2a2350')}
+  for(let i=0;i<4;i++){const x=wrap(i*90+45-cx*.4,W+60)-30,f=2+Math.sin(t*14+i)*1.5;
+    g.fillStyle='rgba(255,156,28,.14)';g.beginPath();g.arc(x+1,114,24,0,7);g.fill();rect(x,118,3,12,'#6b4a2b');rect(x-1,112-f,5,6+f,'#ff9c1c');rect(x,114-f/2,3,4,'#ffe27a')}
+  rect(0,GY,W,H-GY,'#3b3566');rect(0,GY,W,3,'#6a62a8');for(let x=wrap(-cx*.9,24)-24;x<W;x+=24)rect(x,GY+3,1,H-GY,'#2a2350');rect(0,GY+16,W,1,'#2a2350')}
+
+const put=(im,x,y,sc,flip)=>{const w=im.width*sc,h=im.height*sc;rect(x-w*.35,GY,w*.7,2,'rgba(0,0,0,.4)');
+  g.save();g.translate(x|0,y-h|0);if(flip)g.scale(-1,1);g.drawImage(im,-w/2|0,0,w,h);g.restore()};
+
+function draw(){
+  const s=S,th=s.mode=='menu'?(s.t/4|0)%2:s.theme,cx=s.x-160;
+  g.save();if(s.shake>.5)g.translate(R(-s.shake,s.shake)/2|0,R(-s.shake,s.shake)/2|0);
+  (th?bgCastle:bgJungle)(s.t,cx);
+  [...s.en].sort((a,b)=>a.sc-b.sc).forEach(e=>{const im=Array.isArray(e.img)?e.img[(e.ph*(e.type=='bat'?10:6)|0)%2]:e.img;put(im,e.x,e.y+(e.type=='brute'||e.type=='boss'?0:0),e.sc,e.face<0)});
+  if(s.inv<=0||(s.t*20|0)%2){const fr=s.y<GY?0:s.mv?(s.walk*8|0)%2:0;put(HERO[fr],s.x,s.y,2,s.face<0)}
+  s.ar.forEach(a=>{rect(a.x-(a.f>0?6:0),a.y,7,1,'#d9b27a');rect(a.x+(a.f>0?1:-2),a.y-1,2,3,'#fff')});
+  s.par.forEach(p=>rect(p.x,p.y,2,2,p.col));
+  g.restore();
+  if(s.flash>0){g.fillStyle=`rgba(255,0,0,${s.flash})`;g.fillRect(0,0,W,H)}
+  g.font=F(8);g.textAlign='left';g.fillStyle='#fff';
+  if(s.mode!='menu'){g.fillText('SCORE '+s.score,6,12);g.fillText('WAVE '+s.wave,6,24);g.fillStyle='#ffd23f';g.fillText('HI '+hi,6,36);
+    for(let i=0;i<3;i++)g.drawImage(i<s.lives?HFULL:HEMPTY,W-58+i*18,5,14,12);
+    const b=s.en.find(e=>e.type=='boss');if(b){rect(100,6,120,5,'#2b1b5e');rect(100,6,120*b.hp/b.mhp,5,'#ff2d55')}}
+  g.textAlign='center';
+  if(s.mode=='menu'){g.fillStyle='#000a';g.fillRect(0,50,W,84);g.fillStyle='#39ff9c';g.font=F(16);g.fillText('RUIN RAIDER',160,78);g.fillStyle='#fff';g.font=F(7);
+    g.fillText('Jungle and castle. Endless waves. 3 hearts.',160,98);if((s.t*2|0)%2)g.fillText('Click or press ENTER',160,120)}
+  if(s.mode=='play'&&s.banner>0){g.fillStyle='#000a';g.fillRect(0,52,W,34);g.fillStyle='#ffd23f';g.font=F(14);
+    g.fillText(s.wave%5==0?'BOSS WAVE '+s.wave:'WAVE '+s.wave,160,70);g.font=F(7);g.fillStyle='#fff';g.fillText((s.wave-1)%5==0?'ENTER THE '+TH[s.theme].n:TH[s.theme].n,160,82)}
+  if(s.mode=='over'){g.fillStyle='#000b';g.fillRect(0,0,W,H);g.fillStyle='#ff2d55';g.font=F(16);g.fillText('GAME OVER',160,72);
+    g.fillStyle='#fff';g.font=F(8);g.fillText('Score '+s.score+'  Wave '+s.wave,160,96);g.fillText(s.score>=hi?'NEW HIGH SCORE!':'High score '+hi,160,112);g.fillText('Click or ENTER to retry',160,132)}
+}
+
+const go=()=>{if(S.mode=='menu'||(S.mode=='over'&&S.t-S.endT>.7))start()};
+const key=e=>e.key.length==1?e.key.toLowerCase():e.key;
+addEventListener('keydown',e=>{keys[key(e)]=1;if(e.key==' '||e.key.startsWith('Arrow'))e.preventDefault();if(e.key=='Enter')go()});
+addEventListener('keyup',e=>keys[key(e)]=0);
+const aim=e=>{const r=$('c').getBoundingClientRect();S.px=(e.clientX-r.left)/r.width*W};
+$('c').addEventListener('pointermove',aim);
+$('c').addEventListener('pointerdown',e=>{aim(e);go();down=true});addEventListener('pointerup',()=>down=false);
+let last=0;(function loop(t){const dt=Math.min((t-last)/1000||0,.05);last=t;update(dt);draw();requestAnimationFrame(loop)})(0);
+</script></main></body></html>

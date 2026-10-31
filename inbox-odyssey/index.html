@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Inbox Odyssey</title>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<script src="https://accounts.google.com/gsi/client" async></script>
+<style>
+:root{--neon:#39ff9c;--pink:#ff4fa3;--violet:#8a5cff}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:grid;place-items:center;background:radial-gradient(circle at 50% 0,#2a1a6e,#05030f 70%);color:#fff;font:10px/1.8 "Press Start 2P",monospace}
+main{width:min(96vw,960px);padding:12px}
+h1{text-align:center;font-size:clamp(14px,3vw,26px);color:var(--neon);text-shadow:0 0 12px var(--neon),3px 3px var(--pink);margin:8px 0 14px}
+.crt{position:relative;border:6px solid #2b1b5e;border-radius:14px;box-shadow:0 0 40px #8a5cff88,inset 0 0 30px #000;overflow:hidden}
+.crt::after{content:"";position:absolute;inset:0;pointer-events:none;background:repeating-linear-gradient(#0000 0 2px,#0003 2px 3px);box-shadow:inset 0 0 80px #000a}
+canvas{display:block;width:100%;image-rendering:pixelated;cursor:crosshair;background:#000;touch-action:none}
+.bar{display:flex;gap:12px;justify-content:center;margin:14px 0;flex-wrap:wrap}
+button{font:inherit;padding:12px 18px;color:#000;background:var(--neon);border:0;box-shadow:0 5px #168a55;cursor:pointer}
+button.alt{background:var(--pink);box-shadow:0 5px #a02565}
+button:active{transform:translateY(4px);box-shadow:0 1px #0008}
+button:focus-visible{outline:3px solid #fff;outline-offset:3px}
+#log{height:92px;overflow:hidden;font-size:8px;color:#9fe;background:#0008;padding:8px;border:2px solid #2b1b5e}
+#log div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.back{color:#9fe;font-size:8px;text-decoration:none}.back:hover{color:#fff}</style></head><body><main>
+<a class="back" href="../index.html">&lt; ARCADE</a><h1>INBOX ODYSSEY</h1>
+<div class="crt"><canvas id="c" width="320" height="180"></canvas></div>
+<div class="bar"><button onclick="start('demo')">Play demo</button><button class="alt" onclick="connect()">Clean my Gmail</button></div>
+<div id="log"><div>Move: arrows, A/D or mouse. Fire: space or click. Shoot junk, spare the green VIPs.</div></div>
+</main>
+<script>
+// ====== CONFIG: paste your Google OAuth Web Client ID here (see README) ======
+const CLIENT_ID='YOUR_CLIENT_ID.apps.googleusercontent.com';
+const JUNK_QUERY='in:inbox (category:promotions OR category:social OR category:updates) -is:starred -is:important';
+const W=320,H=180,HZ=62,F=n=>`${n}px "Press Start 2P",monospace`;
+const $=id=>document.getElementById(id),g=$('c').getContext('2d');g.imageSmoothingEnabled=false;
+const R=(a,b)=>a+Math.random()*(b-a),pick=a=>a[Math.random()*a.length|0],clamp=v=>Math.max(-1,Math.min(1,v));
+
+// ---------- pixel sprites drawn from text ----------
+const PAL={a:'#39ff9c',b:'#168a55',w:'#fff',k:'#2b1b5e',y:'#ffd23f',d:'#ff2d55'};
+const sprite=(rows,body)=>{const c=document.createElement('canvas'),s=c.getContext('2d');c.width=rows[0].length;c.height=rows.length;
+  rows.forEach((r,j)=>[...r].forEach((ch,i)=>{const col=ch=='e'?body:PAL[ch];if(col){s.fillStyle=col;s.fillRect(i,j,1,1)}}));return c};
+const SHIP=sprite(['.....a.....','....aaa....','...aabaa...','..aaabaaa..','.aaaabaaaa.','aabaabaabaa','d...yyy...d']);
+const ENV=['kkkkkkkkkkkk','kkeeeeeeeekk','kekkeeeekkek','keeekkkkeeek','keeeeeeeeeek','keeeeeeeeeek','kkkkkkkkkkkk'];
+const COL={promo:'#ff4fa3',social:'#5ce1ff',update:'#ffd23f',vip:'#39ff9c'};
+const SP=Object.fromEntries(Object.entries(COL).map(([k,v])=>[k,sprite(ENV,v)]));
+
+// ---------- audio (tiny synth beeps) ----------
+let ac;const beep=(f,d=.06,t='square')=>{try{ac=ac||new AudioContext();const o=ac.createOscillator(),v=ac.createGain();o.type=t;o.frequency.value=f;v.gain.value=.05;o.connect(v).connect(ac.destination);o.start();o.stop(ac.currentTime+d)}catch{}};
+
+// ---------- Gmail layer: the game's kills become real API calls ----------
+let token,Q=[],allies=[],pend=[],pageTok,more=true,busy=false;
+const api=(p,o={})=>fetch('https://gmail.googleapis.com/gmail/v1/users/me/'+p,{...o,headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'}}).then(r=>r.status==204?{}:r.json());
+const hdr=(m,n)=>(m.payload.headers.find(h=>h.name==n)||{}).value||'?';
+const toMail=(m,vip)=>({id:m.id,from:hdr(m,'From').replace(/<.*>/,'').trim()||'?',subject:hdr(m,'Subject'),
+  type:vip?'vip':m.labelIds.includes('CATEGORY_SOCIAL')?'social':m.labelIds.includes('CATEGORY_UPDATES')?'update':'promo'});
+const meta=id=>api(`messages/${id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject`);
+const load=async(r,vip)=>(await Promise.all((r.messages||[]).map(m=>meta(m.id)))).filter(m=>m.payload).map(m=>toMail(m,vip));
+async function refill(){if(busy||!more)return;busy=true;
+  const r=await api(`messages?maxResults=40&q=${encodeURIComponent(JUNK_QUERY)}${pageTok?'&pageToken='+pageTok:''}`);
+  pageTok=r.nextPageToken;more=!!pageTok;Q.push(...await load(r));busy=false}
+function connect(){
+  if(CLIENT_ID.startsWith('YOUR'))return alert('Add your Google Client ID in index.html first. See README.md');
+  google.accounts.oauth2.initTokenClient({client_id:CLIENT_ID,scope:'https://www.googleapis.com/auth/gmail.modify',
+    callback:async r=>{if(!r.access_token)return;token=r.access_token;Q=[];pageTok=null;more=true;
+      allies=await load(await api('messages?maxResults=6&q='+encodeURIComponent('in:inbox is:starred')),true);
+      await refill();start('live')}}).requestAccessToken()}
+// Kills are batched, moved to Trash (recoverable for 30 days). Nothing is permanently deleted.
+async function flush(){if(!pend.length||!token)return;const ids=pend.splice(0,1000);
+  await api('messages/batchModify',{method:'POST',body:JSON.stringify({ids,addLabelIds:['TRASH'],removeLabelIds:['INBOX']})})}
+setInterval(flush,4000);addEventListener('beforeunload',flush);
+
+// ---------- game state ----------
+const fresh=mode=>({mode,t:0,p:0,bul:[],en:[],par:[],score:0,lives:3,cleared:0,combo:0,spawn:1,shake:0,fire:0,end:0});
+let S=fresh('menu'),keys={},down=false;
+const start=mode=>S=fresh(mode);
+const stars=Array.from({length:50},()=>[R(0,W),R(0,HZ),R(.2,1)]);
+// 2.5D projection: lane (-1..1) and depth z (0 horizon .. 1 player) -> screen x, y, scale
+const P=(l,z)=>[160+l*(15+z*135),HZ+z*z*(H-HZ-10),.25+z*1.15];
+const logLine=t=>{const d=document.createElement('div');d.textContent=t;$('log').prepend(d);while($('log').children.length>8)$('log').lastChild.remove()};
+const nextMail=()=>S.mode=='demo'
+  ?(Math.random()<.14?{id:'v'+Math.random(),from:'Mom',subject:'Call me when free',type:'vip'}
+    :{id:'d'+Math.random(),from:pick(['PromoKing','FlashDeals','LinkedIn','Shopzilla','CryptoBro','Pinterest']),
+      subject:pick(['50% OFF tonight!!','3 new notifications','Your weekly digest','We miss you','Win a free phone']),type:pick(['promo','social','update'])})
+  :(Math.random()<.1&&allies.length?pick(allies):Q.shift());
+const boom=(l,z,col)=>{const[X,Y]=P(l,z);for(let i=0;i<14;i++)S.par.push({x:X,y:Y,vx:R(-60,60),vy:R(-70,30),life:R(.3,.7),col})};
+
+function update(dt){
+  const s=S;s.t+=dt;if(s.mode=='menu'||s.end)return;
+  s.p=clamp(s.p+((keys.ArrowRight||keys.d?1:0)-(keys.ArrowLeft||keys.a?1:0))*dt*1.8);
+  s.fire-=dt;if((keys[' ']||down)&&s.fire<=0){s.bul.push({l:s.p,z:1});s.fire=.17;beep(900,.04)}
+  s.bul.forEach(b=>b.z-=dt*1.7);
+  if(s.mode=='live'&&Q.length<25)refill();
+  if((s.spawn-=dt)<=0){const m=nextMail();
+    if(m){s.en.push({...m,l:R(-.9,.9),z:0,v:.16+Math.min(s.cleared/500,.3)});s.spawn=Math.max(.3,.9-s.cleared/250)}else s.spawn=.5}
+  s.en.forEach(e=>e.z+=e.v*dt*(.6+e.z));
+  for(const e of s.en)for(const b of s.bul)if(!e.dead&&!b.hit&&Math.abs(e.l-b.l)<.11&&Math.abs(e.z-b.z)<.07){
+    b.hit=e.dead=1;
+    if(e.type=='vip'){s.lives--;s.combo=0;s.shake=8;beep(120,.25,'sawtooth');boom(e.l,e.z,COL.vip);logLine('Oops, spared VIP: '+e.from)}
+    else{s.combo++;s.cleared++;s.score+=10*(1+(s.combo/5|0));pend.push(e.id);s.shake=3;beep(300+s.combo*20,.08);boom(e.l,e.z,COL[e.type]);logLine('Trashed: '+e.from+' - '+e.subject)}}
+  for(const e of s.en){
+    if(!e.dead&&e.z>.93&&e.type!='vip'&&Math.abs(e.l-s.p)<.15){e.dead=1;s.lives--;s.combo=0;s.shake=8;beep(100,.3,'sawtooth');boom(e.l,e.z,'#fff')}
+    if(e.z>1.1&&!e.dead){if(e.type!='vip')s.combo=0;e.dead=1}}
+  s.en=s.en.filter(e=>!e.dead);s.bul=s.bul.filter(b=>b.z>0&&!b.hit);
+  s.par.forEach(p=>{p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=120*dt;p.life-=dt});s.par=s.par.filter(p=>p.life>0);s.shake*=.85;
+  const clear=s.mode=='live'&&!s.en.length&&!Q.length&&!more&&!busy, goal=s.mode=='demo'&&s.cleared>=60;
+  if(s.lives<=0||clear||goal){s.end=s.t;s.win=s.lives>0;flush()}
+}
+
+function draw(){
+  const s=S;g.save();if(s.shake>.5)g.translate(R(-s.shake,s.shake)/2|0,R(-s.shake,s.shake)/2|0);
+  const sky=g.createLinearGradient(0,0,0,HZ);sky.addColorStop(0,'#0b0820');sky.addColorStop(1,'#6a1b9a');g.fillStyle=sky;g.fillRect(0,0,W,HZ);
+  stars.forEach(([a,b,c])=>{g.fillStyle=`rgba(255,255,255,${.4+.6*Math.abs(Math.sin(s.t*c*3+a))})`;g.fillRect(a,b,1,1)});
+  g.fillStyle='#ff4fa3';g.beginPath();g.arc(160,HZ,24,Math.PI,0);g.fill();
+  g.fillStyle='#120a30';g.fillRect(0,HZ,W,H-HZ);
+  g.strokeStyle='#8a5cff';g.lineWidth=.6;g.beginPath();
+  for(let k=-8;k<=8;k++){g.moveTo(160+k*4,HZ);g.lineTo(160+k*34,H)}
+  for(let i=0;i<9;i++){const z=(i/9+s.t*.25)%1,y=HZ+z*z*(H-HZ);g.moveTo(0,y);g.lineTo(W,y)}
+  g.stroke();
+  [...s.en].sort((a,b)=>a.z-b.z).forEach(e=>{const[X,Y,k]=P(e.l,e.z),im=SP[e.type],w=im.width*k,h=im.height*k;
+    if(e.type=='vip'){g.fillStyle='#39ff9c55';g.fillRect(X-w/2-2,Y-h/2-2,w+4,h+4)}
+    g.drawImage(im,X-w/2|0,Y-h/2|0,w|0,h|0)});
+  g.fillStyle='#fff';s.bul.forEach(b=>{const[X,Y,k]=P(b.l,b.z);g.fillRect(X-k,Y-2*k,2*k,4*k)});
+  if(s.mode!='menu'){const[X,Y]=P(s.p,1);g.drawImage(SHIP,X-11|0,Y-14|0,22,14)}
+  s.par.forEach(p=>{g.fillStyle=p.col;g.fillRect(p.x,p.y,2,2)});
+  g.restore();
+  if(s.mode!='menu'){g.font=F(8);g.textAlign='left';g.fillStyle='#fff';g.fillText('SCORE '+s.score,6,12);g.fillText('x'+(1+(s.combo/5|0)),6,24);
+    g.fillStyle='#ff2d55';for(let i=0;i<s.lives;i++)g.fillRect(262+i*16,5,12,9);
+    g.fillStyle='#39ff9c';g.textAlign='right';g.fillText('CLEARED '+s.cleared,W-6,28)}
+  g.textAlign='center';
+  if(s.mode=='menu'){g.fillStyle='#39ff9c';g.font=F(16);g.fillText('INBOX ODYSSEY',160,84);
+    g.fillStyle='#fff';g.font=F(7);g.fillText('Blast the junk. Spare the VIPs.',160,104);g.fillText('Pick a mode below',160,120)}
+  if(s.end){g.fillStyle='#000a';g.fillRect(0,0,W,H);g.fillStyle=s.win?'#39ff9c':'#ff2d55';g.font=F(14);
+    g.fillText(s.win?'INBOX CLEARED':'GAME OVER',160,78);g.fillStyle='#fff';g.font=F(8);
+    g.fillText(s.cleared+' emails cleared - score '+s.score,160,100);g.fillText('Press ENTER to play again',160,120)}
+}
+
+addEventListener('keydown',e=>{keys[e.key]=1;if(e.key==' ')e.preventDefault();if(e.key=='Enter'&&S.end)start(S.mode)});
+addEventListener('keyup',e=>keys[e.key]=0);
+const aim=e=>{const r=$('c').getBoundingClientRect();S.p=clamp((((e.clientX-r.left)/r.width*W)-160)/150)};
+$('c').addEventListener('pointermove',aim);
+$('c').addEventListener('pointerdown',e=>{down=true;aim(e)});addEventListener('pointerup',()=>down=false);
+let last=0;(function loop(t){const dt=Math.min((t-last)/1000||0,.05);last=t;update(dt);draw();requestAnimationFrame(loop)})(0);
+</script></body></html>
